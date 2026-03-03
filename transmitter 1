@@ -1,0 +1,207 @@
+#include<lpc21xx.h>
+#define lcd_d 0xf<<10
+#define rs 1<<8
+#define e 1<<9
+typedef unsigned int u32;
+
+struct can
+{
+	u32 mid;
+	u32 rtr;
+	u32 dlc;
+	u32 data1;
+	u32 data2;
+};
+
+struct can c2;
+
+void can_init(void);
+void tx_node(struct can);
+void spi_init(void);
+unsigned char spi_data(unsigned char);
+float spi_ADC(unsigned char);
+void lcd_init(void);
+void lcd_cmd(unsigned char);
+void lcd_data(unsigned char);
+void lcd_float(int);
+void lcd_string(unsigned char *);
+void delay_ms(int ms)
+{
+	T0PR=60000-1;
+	T0TCR=0x01;
+	while(T0TC<ms);
+	T0TCR=0x03;
+	T0TCR=0x00;
+}
+
+
+int main()
+{
+	float f;
+	int n;
+	
+	IODIR0=1<<7;
+	can_init();
+	lcd_init();
+	spi_init();
+    
+	c2.mid=0x2B;
+	c2.rtr=0;
+	c2.dlc=4;
+	c2.data2=0;
+	lcd_string("temperature");
+	while(1)
+	{
+		f=spi_ADC(0);
+		n=f;
+		c2.data1=n;
+		tx_node(c2);
+		lcd_cmd(0xc0);
+		lcd_float(n);
+		delay_ms(3000);
+		lcd_cmd(0x01);
+	}
+}
+
+void can_init(void)
+{
+	PINSEL1=5<<14;
+	VPBDIV=1;
+	C2MOD=1<<0;
+	AFMR=1<<1;
+	C2BTR|=0x1D;
+	C2MOD=0x0;
+}
+
+void tx_node(struct can n)
+{
+	C2TID1=n.mid;
+
+	C2TFI1=(0<<30);
+	C2TFI1|=(n.dlc<<16);
+	C2TDA1=n.data1;
+	C2TDB1=n.data2;
+	
+	C2CMR=1<<0|1<<5;
+	while(((C2GSR>>3)&1)==0);
+}
+
+void spi_init(void)
+{
+	PINSEL0=21<<8;
+	S0SPCCR=150;
+	S0SPCR=(1<<5|3<<3);
+	IOSET0=1<<7;
+}
+
+float spi_ADC(unsigned char chno)
+{
+	unsigned char hbyte,lbyte;
+	float adval=0;
+	IOCLR0=1<<7;
+
+	spi_data(3<<1);
+	hbyte=spi_data(chno<<6);
+	lbyte=spi_data(0x00);
+	IOSET0=1<<7;
+
+	adval=(((hbyte&0x0f)<<8)|lbyte);
+	return (((adval*3.3)/4096)*100);
+}
+
+unsigned char spi_data(unsigned char dat)
+{
+	S0SPSR=0<<7;
+	S0SPDR=dat;
+	while(((S0SPSR>>7)&1)==0);
+	return S0SPDR;
+}
+
+void lcd_init(void)
+{
+	IODIR0|=lcd_d|rs|e;
+	lcd_cmd(0x01);
+	lcd_cmd(0x02);
+	lcd_cmd(0x0c);
+	lcd_cmd(0x28);
+	lcd_cmd(0x80);
+}
+
+void lcd_cmd(unsigned char cmd)
+{
+   IOCLR0=lcd_d;
+	IOSET0=(cmd&(0xf0))<<6;
+	IOCLR0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+
+	IOCLR0=lcd_d;
+	IOSET0=(cmd&(0x0f))<<10;
+	IOCLR0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+}
+
+void lcd_data(unsigned char d)
+{
+	IOCLR0=lcd_d;
+	IOSET0=(d&(0xf0))<<6;
+	IOSET0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+
+	IOCLR0=lcd_d;
+	IOSET0=(d&(0x0f))<<10;
+	IOSET0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+}
+
+void lcd_float(int n)
+{
+	unsigned char arr[5];
+	signed char i=0;
+	if(n==0)
+	{
+		lcd_data('0');
+	}
+	else
+	{
+		if(n<0)
+		{
+			lcd_data('-');
+			n=-n;
+		}
+		while(n>0)
+		{
+			arr[i++]=n%10;
+			n=n/10;
+		}
+		for(i=i-1;i>=0;i--)
+		{
+			lcd_data(arr[i]+48);
+		}
+	}
+}
+
+void lcd_string(unsigned char* s)
+{
+	while(*s)
+	{
+		lcd_data(*s++);
+	}
+}
+
+	
+
+	
+
+
+
+
+
+	
