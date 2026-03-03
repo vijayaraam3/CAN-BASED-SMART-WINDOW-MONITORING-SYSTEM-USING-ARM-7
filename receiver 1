@@ -1,0 +1,240 @@
+#include<lpc21xx.h>
+#include<stdio.h>
+#define lcd_d 0xf<<10
+#define rs 1<<8
+#define e 1<<9
+typedef unsigned int u32;
+
+struct can
+{
+	u32 mid;
+	u32 rtr;
+	u32 dlc;
+	u32 data1;
+	u32 data2;
+};
+struct can n;
+
+void can_init(void);
+void can_rx(struct can*);
+void servo_init(void);
+void servo_write(int);
+void lcd_init(void);
+void lcd_cmd(unsigned char);
+void lcd_data(unsigned char);
+void lcd_float(int);
+void lcd_string(unsigned char *);
+void uart1_init(void);
+void uart1_tx(unsigned char);
+void uart1_string(unsigned char*);
+void uart1_hex(int num);
+void delay_ms(int ms)
+{
+	T0PR=60000-1;
+	T0TCR=0x01;
+	while(T0TC<ms);
+	T0TCR=0x03;
+	T0TCR=0x00;
+}
+
+
+
+int main()
+{
+	IODIR0=3<<0;
+	can_init();
+	lcd_init();
+	
+	uart1_init();
+	servo_init();
+	lcd_string("temperature");
+	while(1)
+	{	 
+		can_rx(&n);
+		
+		
+		
+		uart1_hex(n.mid);
+		uart1_tx(' ');
+		uart1_hex(n.rtr);
+		uart1_tx(' ');
+		uart1_hex(n.dlc);
+		uart1_tx(' ');
+		uart1_hex(n.data1);
+		uart1_tx(' ');
+		uart1_hex(n.data2);
+		uart1_tx(' ');
+		uart1_string("\r\n");
+	
+		if(n.data1>30)
+		{
+			servo_write(2000);
+		}
+		else if(n.data1<30)
+		{
+			servo_write(1000);
+		}
+		else
+		{	
+			servo_write(1500);
+		}
+		lcd_cmd(0xc0);
+		lcd_float(n.data1);
+		delay_ms(3000);
+		lcd_cmd(0x01);
+	}
+}
+
+void can_init(void)
+{
+	PINSEL1=5<<14;
+	VPBDIV=1;
+	C2MOD=1<<0;
+	AFMR=1<<1;
+	C2BTR|=0x1D;
+	C2MOD=0x0;
+}
+
+void can_rx(struct can* m)
+{
+	while(((C2GSR>>0)&1)==0);
+	
+	m->mid=C2RID;
+	m->rtr=((C2RFS>>30)&1);
+	m->dlc=((C2RFS>>16)&0x0f);
+	m->data1=C2RDA;
+	m->data2=C2RDB;
+	
+	C2CMR=1<<2;
+}
+
+void servo_init(void)
+{
+	
+	PINSEL0|=1<<3;
+	PWMTCR=1<<1;
+	PWMPR=60-1;
+	PWMMR0=5000;
+	PWMMR3=1500;
+	PWMMCR=1<<1;
+	PWMLER=(1<<0)|(1<<3);
+	PWMPCR=1<<11;
+	PWMTCR=(1<<0)|(1<<3);
+}*/
+
+void servo_write(int angle)
+{
+	PWMMR3=angle;
+	PWMLER=1<<3;
+}
+
+void lcd_init(void)
+{
+	IODIR0|=lcd_d|rs|e;
+	lcd_cmd(0x01);
+	lcd_cmd(0x02);
+	lcd_cmd(0x0c);
+	lcd_cmd(0x28);
+	lcd_cmd(0x80);
+}
+
+void lcd_cmd(unsigned char cmd)
+{
+   IOCLR0=lcd_d;
+	IOSET0=(cmd&(0xf0))<<6;
+	IOCLR0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+
+	IOCLR0=lcd_d;
+	IOSET0=(cmd&(0x0f))<<10;
+	IOCLR0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+}
+
+void lcd_data(unsigned char d)
+{
+	IOCLR0=lcd_d;
+	IOSET0=(d&(0xf0))<<6;
+	IOSET0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+
+	IOCLR0=lcd_d;
+	IOSET0=(d&(0x0f))<<10;
+	IOSET0=rs;
+	IOSET0=e;
+	delay_ms(2);
+	IOCLR0=e;
+}
+
+
+void lcd_float(int n)
+{
+	unsigned char arr[5];
+	signed char i=0;
+	if(n==0)
+	{
+		lcd_data('0');
+	}
+	else
+	{
+		if(n<0)
+		{
+			lcd_data('-');
+			n=-n;
+		}
+		while(n>0)
+		{
+			arr[i++]=n%10;
+			n=n/10;
+		}
+		for(i=i-1;i>=0;i--)
+		{
+			lcd_data(arr[i]+48);
+		}
+	}
+}
+void lcd_string(unsigned char* s)
+{
+	while(*s)
+	{
+		lcd_data(*s++);
+	}
+}
+
+
+void uart1_init(void)
+{
+	PINSEL0|=5<<16;
+	U1LCR=0x83;
+	U1DLL=32;
+	U1DLM=0;
+	U1LCR=0x03;
+}
+
+void uart1_tx(unsigned char txbyte)
+{
+	while(((U1LSR>>5)&1)==0);
+		U1THR=txbyte;
+}
+
+void uart1_string(unsigned char* s)
+{
+	while(*s)
+	{
+		uart1_tx(*s++);
+	}
+}
+
+void uart1_hex(int num)
+{
+	char buf[10];
+	sprintf(buf,"%X",num);
+	uart1_string(buf);
+ 
+}
